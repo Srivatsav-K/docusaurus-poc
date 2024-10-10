@@ -7,7 +7,6 @@ on:
       - opened
       - reopened
       - synchronize
-      - closed
 
 concurrency: preview-${{ github.ref }}
 
@@ -26,12 +25,15 @@ jobs:
           cache: npm
 
       - name: Install dependecies and build
-        if: github.event.action != 'closed'
         run: |
           npm ci
           npm run build
 
-      - name: Deploy preview
-        uses: rossjrw/pr-preview-action@v1
-        with:
-          source-dir: ./build/
+      - name: Deploy to netlify
+        env:
+          IS_NETLIFY_BUILD: "true"
+        run: |
+          npx netlify deploy \
+            --dir dist \
+            --site ${{ secrets.NETLIFY_SITE_ID }} \
+            --auth ${{ secrets.NETLIFY_API_TOKEN }}
