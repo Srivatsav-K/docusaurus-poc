@@ -25,13 +25,13 @@ jobs:
           cache: npm
 
       - name: Install dependecies and build
+        env:
+          IS_NETLIFY_BUILD: "true"
         run: |
           npm ci
           npm run build
 
       - name: Deploy to netlify
-        env:
-          IS_NETLIFY_BUILD: "true"
         run: |
           netlify --telemetry-disable
           netlify deploy \
