@@ -1,0 +1,74 @@
+image: node:lts-alpine3.19
+
+variables:
+  NODE_ENV: production
+  CACHE_DIR: .npm
+  CI: true
+
+stages:
+  - install
+  - build
+  - preview
+  - deploy
+
+cache:
+  paths:
+    - $CACHE_DIR
+
+install_dependencies:
+  stage: install
+  script:
+    - echo "Installing dependencies..."
+    - npm ci
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+
+build_app:
+  stage: build
+  script:
+    - echo "Building the application..."
+    - npm run build
+
+preview_app:
+  stage: preview
+  variables:
+    NETLIFY_SITE_ID: $NETLIFY_SITE_ID
+    NETLIFY_AUTH_TOKEN: $NETLIFY_AUTH_TOKEN
+    GITLAB_API_TOKEN: $GITLAB_API_TOKEN
+  script:
+    - echo "Generating preview link..."
+    - apk add --no-cache zip curl jq
+    - npx netlify deploy --site $NETLIFY_SITE_ID --auth $NETLIFY_AUTH_TOKEN --dir build | tee netlify_output.txt
+    - export DRAFT_URL=$(cat netlify_output.txt | grep 'Draft.*https' | sed -e 's/\x1b\[[0-9;]*m//g' | awk -F " " '{print $NF}')
+    # Edit MR description with a link to latest preview
+    - 'curl
+      --header "PRIVATE-TOKEN: $GITLAB_API_TOKEN"
+      "https://crypt.cybrilla.io/api/v4/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID" > mr.json'
+    - export DESCRIPTION=$(jq -r '.description' mr.json)
+    - 'if [[ "$DESCRIPTION" != *"Browse the Preview"* ]];
+      then
+      export DESCRIPTION=$(printf "$DESCRIPTION
+
+
+      😎 **Browse the Preview: $DRAFT_URL**");
+      else
+      export DESCRIPTION=$(printf "$DESCRIPTION" | sed "s~\*\*Browse the Preview: https://.*\*\*~\*\*Browse the Preview: $DRAFT_URL\*\*~g");
+      fi'
+    - 'curl --request PUT
+      --header "PRIVATE-TOKEN: $GITLAB_API_TOKEN"
+      --data "description=$DESCRIPTION"
+      "https://crypt.cybrilla.io/api/v4/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID"'
+  tags:
+    - preview
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+# deploy_app:
+#   stage: deploy
+#   script:
+#     - echo "Deploying the application..."
+#   rules:
+#     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
+#   tags:
+#     - deploy
